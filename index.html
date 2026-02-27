@@ -4,7 +4,6 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Cage Rebar Analysis</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
@@ -576,11 +575,8 @@ function handleFile(file) {
   reader.onload = e => {
     try {
       if (ext === 'csv') {
-        PapaParse.parse(e.target.result, {
-          header: true, skipEmptyLines: true,
-          complete: r => processData(r.data, file.name),
-          error: err => { setStatus('Parse error: '+err.message); showProgress(false); }
-        });
+        const data = parseCSV(e.target.result);
+        processData(data, file.name);
       } else {
         const wb = XLSX.read(e.target.result, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
@@ -884,7 +880,7 @@ function updateSortHeaders(tableId, activeCol, dir) {
 // ── DOWNLOAD ──────────────────────────────────────────────────────────────────
 function downloadCSV(which) {
   const data = which==='cage' ? filteredCage : filteredRaw;
-  const csv  = PapaParse.unparse(data);
+  const csv  = unparseCSV(data);
   const blob = new Blob([csv], {type:'text/csv'});
   const a    = document.createElement('a');
   a.href     = URL.createObjectURL(blob);
@@ -924,6 +920,49 @@ function resetApp() {
   document.getElementById('status-msg').style.display='block';
   document.getElementById('file-input').value='';
   setStatus('');
+}
+
+// ── BUILT-IN CSV PARSER ───────────────────────────────────────────────────────
+function parseCSV(text) {
+  const lines = text.split(/\r?\n/);
+  if (!lines.length) return [];
+  // Parse headers
+  const headers = splitCSVLine(lines[0]);
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    const vals = splitCSVLine(lines[i]);
+    const obj = {};
+    headers.forEach((h, idx) => { obj[h] = vals[idx] !== undefined ? vals[idx] : ''; });
+    rows.push(obj);
+  }
+  return rows;
+}
+
+function splitCSVLine(line) {
+  const result = [];
+  let cur = '', inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuote && line[i+1] === '"') { cur += '"'; i++; }
+      else inQuote = !inQuote;
+    } else if (ch === ',' && !inQuote) {
+      result.push(cur); cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  result.push(cur);
+  return result;
+}
+
+function unparseCSV(data) {
+  if (!data.length) return '';
+  const headers = Object.keys(data[0]);
+  const escape  = v => { const s = String(v??''); return s.includes(',') || s.includes('"') || s.includes('\n') ? '"' + s.replace(/"/g,'""') + '"' : s; };
+  const rows    = data.map(r => headers.map(h => escape(r[h])).join(','));
+  return [headers.join(','), ...rows].join('\n');
 }
 </script>
 </body>
