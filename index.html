@@ -611,15 +611,23 @@ const ARMF_STATUS = {"1HVD1023AC1": "Complete", "2HPF0068AC1": "Complete", "1HVD
 function getArmfStatus(ref) {
   if (!ref) return 'Not in ARMF';
   const clean = String(ref).trim();
-  // Try exact match first
-  let status = ARMF_STATUS[clean];
-  if (!status) {
-    // Strip trailing notes e.g. "2HPX7336AC1 (Not linked)"
-    const base = clean.split(' ')[0];
-    status = ARMF_STATUS[base];
+  
+  // Build a case-insensitive lookup the first time
+  if (!getArmfStatus._ciMap) {
+    getArmfStatus._ciMap = {};
+    for (const [k, v] of Object.entries(ARMF_STATUS)) {
+      getArmfStatus._ciMap[k.toLowerCase()] = v;
+    }
   }
+  
+  // Try exact match, then lowercase, then strip trailing notes
+  let status = ARMF_STATUS[clean]
+    || getArmfStatus._ciMap[clean.toLowerCase()]
+    || ARMF_STATUS[clean.split(' ')[0]]
+    || getArmfStatus._ciMap[clean.split(' ')[0].toLowerCase()];
+
   if (!status) return 'Not in ARMF';
-  // Normalise case: "in-progress" -> "In-progress"
+  // Normalise case
   if (status.toLowerCase() === 'in-progress') return 'In-progress';
   if (status.toLowerCase() === 'complete')    return 'Complete';
   return status;
@@ -791,9 +799,15 @@ function buildCageSummary() {
 
 // ── KPIs ──────────────────────────────────────────────────────────────────────
 function renderKPIs(data) {
-  data = data || allData.filter(r => activeProjects.has(r['_project']));
+  // data = filtered rows, cageSummary already rebuilt by applyProjectFilter
+  if (!data) {
+    const base = activeArmf !== 'All'
+      ? allData.filter(r => r['_armf'] === activeArmf && activeProjects.has(r['_project']))
+      : allData.filter(r => activeProjects.has(r['_project']));
+    data = base;
+  }
   const n = data.length;
-  const cages   = cageSummary.length;
+  const cages = cageSummary.length;
   const btCnt   = bt => data.filter(r=>r['Bar Type']===bt).length;
   const mesh    = btCnt('Mesh');
   const nonmesh = n - mesh;
@@ -828,7 +842,11 @@ function renderKPIs(data) {
 
 // ── CHARTS ────────────────────────────────────────────────────────────────────
 function renderCharts(data) {
-  data = data || allData.filter(r => activeProjects.has(r['_project']));
+  if (!data) {
+    data = activeArmf !== 'All'
+      ? allData.filter(r => r['_armf'] === activeArmf && activeProjects.has(r['_project']))
+      : allData.filter(r => activeProjects.has(r['_project']));
+  }
   const btOrder = ['Mesh','Shear Link','Loose Bar','VS Sub-Assembly','HS Sub-Assembly','Preload','Other'];
   const counts  = btOrder.map(bt => data.filter(r=>r['Bar Type']===bt).length);
   const weights = btOrder.map(bt =>
@@ -931,7 +949,7 @@ function applyProjectFilter() {
   }
   // Step 2: filter by project
   base = base.filter(r => activeProjects.has(r['_project']));
-  // Re-build cage summary from filtered base
+  // Rebuild cage summary from filtered base
   const savedAll = allData;
   allData = base;
   buildCageSummary();
