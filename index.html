@@ -927,6 +927,7 @@ function applyProjectFilter() {
   // Step 1: filter by ARMF status
   let base = allData;
   if (activeArmf !== 'All') {
+    // Strictly exclude "Not in ARMF" cages when a specific status is selected
     base = base.filter(r => r['_armf'] === activeArmf);
   }
   // Step 2: filter by project
@@ -935,6 +936,11 @@ function applyProjectFilter() {
   const savedAll = allData;
   allData = base;
   buildCageSummary();
+  // Extra safety: if ARMF filter is active, remove any cage summary rows
+  // where ARMF status doesn't match (catches cage-level grouping edge cases)
+  if (activeArmf !== 'All') {
+    cageSummary = cageSummary.filter(c => c['ARMF Status'] === activeArmf);
+  }
   allData = savedAll;
 
   filteredCage = [...cageSummary];
