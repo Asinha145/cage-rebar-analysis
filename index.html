@@ -443,10 +443,10 @@
   </div>
 
   <!-- UPLOAD ZONE -->
-  <div id="upload-zone" onclick="document.getElementById('file-input').click()"
-       ondragover="e=>{e.preventDefault();this.classList.add('drag')}"
-       ondragleave="this.classList.remove('drag')"
-       ondrop="handleDrop(event)">
+    <div id="upload-zone" onclick="document.getElementById('file-input').click()"
+      ondragover="e=>{e.preventDefault();this.classList.add('drag')}"
+      ondragleave="this.classList.remove('drag')"
+      ondrop="handleDrop(event)">
     <div class="upload-icon">⬆️</div>
     <h2>Upload Your Data</h2>
     <p>Drop your <strong>CSV</strong> or <strong>Excel</strong> file here<br/>
@@ -459,7 +459,19 @@
     <div id="progress-bar"><div class="bar"></div></div>
   </div>
   <div id="status-msg"></div>
-  <input type="file" id="file-input" accept=".csv,.xlsx,.xls" onchange="handleFile(this.files[0])"/>
+  <input type="file" id="file-input" accept=".csv,.xlsx,.xls" multiple onchange="handleFiles(this.files)"/>
+
+  <!-- MULTI-FILE LIST & SUMMARY -->
+  <div id="file-list" style="max-width:760px;margin:18px auto;display:none">
+    <div class="sec">Uploaded Files</div>
+    <div id="file-list-inner"></div>
+    <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px;display:flex;gap:12px;align-items:center;justify-content:space-between;">
+      <div id="combined-summary" style="color:var(--muted2)"></div>
+      <div>
+        <button class="dl-btn csv" onclick="buildFromUploaded()">Build Dashboard</button>
+      </div>
+    </div>
+  </div>
 
   <!-- DASHBOARD -->
   <div id="dashboard">
@@ -671,39 +683,175 @@ function badgeClass(bt) {
 function handleDrop(e) {
   e.preventDefault();
   document.getElementById('upload-zone').classList.remove('drag');
-  const f = e.dataTransfer.files[0];
-  if (f) handleFile(f);
+  const files = e.dataTransfer.files;
+  if (files && files.length) handleFiles(files);
 }
 
 // ── FILE HANDLER ──────────────────────────────────────────────────────────────
-function handleFile(file) {
-  if (!file) return;
-  setStatus('Reading file…');
+// MULTI-FILE HANDLING
+const uploadedFiles = []; // {name, rows, rowCount, gidFound}
+
+function handleFiles(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  setStatus('Reading files…');
   showProgress(true);
+  uploadedFiles.length = 0;
+  document.getElementById('file-list').style.display = 'block';
 
-  const ext = file.name.split('.').pop().toLowerCase();
-  const reader = new FileReader();
+  const readers = files.map(f => readAndParseFile(f).then(rows => {
+    const obj = { name: f.name, rows: rows, rowCount: rows.length };
+    uploadedFiles.push(obj);
+  }).catch(err => {
+    uploadedFiles.push({ name: f.name, rows: [], rowCount: 0, error: err.message });
+  }));
 
-  reader.onload = e => {
-    try {
-      if (ext === 'csv') {
-        const data = parseCSV(e.target.result);
-        processData(data, file.name);
-      } else {
-        const wb = XLSX.read(e.target.result, { type: 'array' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
-        processData(data, file.name);
-      }
-    } catch(err) {
-      setStatus('Error: ' + err.message);
-      showProgress(false);
-    }
-  };
-
-  if (ext === 'csv') reader.readAsText(file);
-  else reader.readAsArrayBuffer(file);
+  Promise.all(readers).then(() => {
+    showProgress(false);
+    setStatus(`Read ${uploadedFiles.reduce((s,f)=>s+f.rowCount,0).toLocaleString()} rows from ${uploadedFiles.length} files`);
+    updateFileListUI();
+  }).catch(err => {
+    showProgress(false);
+    setStatus('Error reading files: ' + err.message);
+  });
 }
+
+function readAndParseFile(file) {
+  return new Promise((resolve, reject) => {
+    const ext = file.name.split('.').pop().toLowerCase();
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        if (ext === 'csv') {
+          const data = parseCSV(e.target.result);
+          resolve(data);
+        } else {
+          const wb = XLSX.read(e.target.result, { type: 'array' });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
+          resolve(data);
+        }
+      } catch (err) { reject(err); }
+    };
+    reader.onerror = err => reject(err);
+    if (ext === 'csv') reader.readAsText(file); else reader.readAsArrayBuffer(file);
+  });
+}
+
+function updateFileListUI() {
+  const container = document.getElementById('file-list-inner');
+  container.innerHTML = '';
+  // Detect GlobalID key existence per file
+  uploadedFiles.forEach(f => {
+    const gidKey = findGlobalIdKey(f.rows);
+    f.gidKey = gidKey;
+    f.gidFound = !!gidKey;
+    const div = document.createElement('div');
+    div.className = 'file-strip';
+    const dupText = f.duplicatesRemoved ? ` · ${f.duplicatesRemoved.toLocaleString()} duplicates removed` : '';
+    div.innerHTML = `
+      <div>
+        <strong class="fname">${f.name}</strong>
+        <div class="fmeta">${f.rowCount.toLocaleString()} rows · ${f.gidFound ? '✓ IFC-GLOBALID found' : '⚠ IFC-GLOBALID missing'}${dupText}</div>
+      </div>
+      <div>
+        <button onclick="removeUploaded('${escapeHtml(f.name)}')">Remove</button>
+      </div>`;
+    container.appendChild(div);
+  });
+  const combined = uploadedFiles.reduce((s,f)=>s+f.rowCount,0);
+  document.getElementById('combined-summary').textContent = `Combined raw: ${combined.toLocaleString()} rows`;
+}
+
+function removeUploaded(name) {
+  const idx = uploadedFiles.findIndex(f => f.name === name);
+  if (idx>=0) uploadedFiles.splice(idx,1);
+  updateFileListUI();
+}
+
+function escapeHtml(s){ return s.replace(/'/g,"\\'").replace(/"/g,'\\"'); }
+
+let lastDedupStats = null;
+
+function buildFromUploaded() {
+  if (!uploadedFiles.length) { setStatus('No files to build from'); return; }
+  showLoading('Combining and deduplicating…');
+
+  // Stack in upload order
+  const stacked = [];
+  uploadedFiles.forEach(f => {
+    f.rows.forEach(r => { const copy = Object.assign({}, r); copy.__source = f.name; stacked.push(copy); });
+  });
+
+  // Find a global ID key using heuristics
+  const gidKey = findGlobalIdKey(stacked);
+  if (!gidKey) {
+    showLoading(false);
+    alert('Could not find an IFC - GLOBALID column in the uploaded files. Deduplication requires that column.');
+    return;
+  }
+
+  const { deduped, duplicatesRemoved, duplicateFiles } = dedupeByGlobalId(stacked, gidKey);
+  lastDedupStats = { combinedRaw: stacked.length, afterDedup: deduped.length, duplicatesRemoved, duplicateFiles };
+
+  // Update combined summary UI
+  const cs = document.getElementById('combined-summary');
+  cs.textContent = `Combined raw: ${lastDedupStats.combinedRaw.toLocaleString()} rows · After dedup: ${lastDedupStats.afterDedup.toLocaleString()}  ⚠ ${lastDedupStats.duplicatesRemoved.toLocaleString()} duplicates removed`;
+
+  // Mark which files had overlaps
+  uploadedFiles.forEach(f => { f.duplicatesRemoved = lastDedupStats.duplicateFiles[f.name] || 0; });
+  updateFileListUI();
+
+  // Pass deduped into existing pipeline
+  setTimeout(()=>{
+    processData(deduped, 'Combined (deduped)');
+    showLoading(false);
+  }, 50);
+}
+
+function findGlobalIdKey(rows) {
+  if (!rows || !rows.length) return null;
+  const sample = rows[0];
+  const keys = Object.keys(sample);
+  // look for keys that contain both ifc and globalid (case-insensitive)
+  for (const k of keys) {
+    const norm = k.toLowerCase().replace(/[^a-z0-9]/g,'');
+    if (norm.includes('ifc') && norm.includes('globalid')) return k;
+  }
+  // fallback: look for header containing globalid
+  for (const k of keys) if (k.toLowerCase().includes('globalid')) return k;
+  return null;
+}
+
+function dedupeByGlobalId(rows, gidKey) {
+  const seen = new Set();
+  const seenOwner = {}; // gid -> first file
+  const duplicateFiles = {}; // file -> count
+  const deduped = [];
+  let removed = 0;
+
+  for (const r of rows) {
+    const gidRaw = r[gidKey];
+    const gid = gidRaw === undefined || gidRaw === null ? '' : String(gidRaw).trim();
+    if (!gid) {
+      // keep rows without gid
+      deduped.push(r);
+      continue;
+    }
+    if (!seen.has(gid)) {
+      seen.add(gid);
+      seenOwner[gid] = r.__source || 'unknown';
+      deduped.push(r);
+    } else {
+      // duplicate — mark removed
+      removed++;
+      const src = r.__source || 'unknown';
+      duplicateFiles[src] = (duplicateFiles[src] || 0) + 1;
+    }
+  }
+  return { deduped, duplicatesRemoved: removed, duplicateFiles };
+}
+
 
 // ── PROCESS DATA ──────────────────────────────────────────────────────────────
 function processData(data, fname) {
@@ -737,8 +885,13 @@ function processData(data, fname) {
 
       // File info
       document.getElementById('fname').textContent = fname + '  ';
-      document.getElementById('fmeta').textContent =
-        `${allData.length.toLocaleString()} rows · ${rawCols.length} columns`;
+      if (lastDedupStats && String(fname).toLowerCase().includes('combined')) {
+        document.getElementById('fmeta').textContent =
+          `${allData.length.toLocaleString()} rows · ${rawCols.length} columns · ${lastDedupStats.duplicatesRemoved.toLocaleString()} duplicates removed`;
+      } else {
+        document.getElementById('fmeta').textContent =
+          `${allData.length.toLocaleString()} rows · ${rawCols.length} columns`;
+      }
 
       // Render
       updateProjectCounts();
@@ -1141,6 +1294,10 @@ function resetApp() {
   document.getElementById('upload-zone').style.display='block';
   document.getElementById('status-msg').style.display='block';
   document.getElementById('file-input').value='';
+  uploadedFiles.length = 0;
+  lastDedupStats = null;
+  document.getElementById('file-list').style.display = 'none';
+  document.getElementById('file-list-inner').innerHTML = '';
   setStatus('');
 }
 
