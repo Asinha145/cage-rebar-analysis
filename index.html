@@ -968,6 +968,7 @@ function renderKPIs(data) {
   const lsap    = btCnt('Loose Bar')+btCnt('VS Sub-Assembly')+btCnt('HS Sub-Assembly')+btCnt('Preload');
   const wt      = data.reduce((s,r)=>s+(+r['Total Bar Weight']||0),0);
   const avgNM   = cages ? (nonmesh/cages).toFixed(1) : 0;
+  const avgLSAP = cages ? (lsap/cages).toFixed(1) : 0;
   const meshShearOnly    = cageSummary.filter(c=>c['Mesh+Shear Only']==='Yes').length;
   const multiSubAssembly = cageSummary.filter(c=>c['Multi Sub-Assembly']==='Yes').length;
 
@@ -978,6 +979,7 @@ function renderKPIs(data) {
     {label:'Total Mesh',          val: mesh.toLocaleString(),                sub:'F & N layer bars',           cls:'red'},
     {label:'Shear Links',         val: shear.toLocaleString(),               sub:'LK & S layer',              cls:'purple'},
     {label:'LSAP Bars',           val: lsap.toLocaleString(),                sub:'LB+VS+HS+PRL',              cls:'cyan'},
+    {label:'Avg LSAP / Cage',     val: (+avgLSAP).toLocaleString(),         sub:'LB+VS+HS+PRL per cage',     cls:'cyan'},
     {label:'Mesh & Shear Only',   val: meshShearOnly.toLocaleString(),       sub:'Cages with no other bars',   cls:'green'},
     {label:'Multi Sub-Assembly',  val: multiSubAssembly.toLocaleString(),    sub:'Cages with >1 sub-assembly', cls:'amber'},
     {label:'Avg Non-Mesh / Cage', val: (+avgNM).toLocaleString(),            sub:'Per cage',                  cls:'blue'},

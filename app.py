@@ -386,6 +386,10 @@ with col7:
 with col8:
     st.metric("Avg Non-Mesh / Cage", f"{avg_nonmesh:,}")
 
+    # Average LSAP per cage metric
+col9, col10, _, _ = st.columns(4)
+with col9:
+    st.metric("Avg LSAP / Cage", f"{avg_lsap:,}")
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
