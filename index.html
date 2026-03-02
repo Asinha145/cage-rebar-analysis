@@ -343,6 +343,35 @@
   .pg-btn.active { background: var(--accent); border-color: var(--accent); color: #000; }
   .pg-info { margin: 0 8px; }
 
+  /* ── PROJECT FILTER BUTTONS ── */
+  .project-filter {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 20px; flex-wrap: wrap;
+  }
+  .project-filter .pf-label {
+    font-size: 0.7rem; font-weight: 600; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--muted); margin-right: 4px;
+  }
+  .pf-btn {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.85rem; font-weight: 700;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 7px 18px; border-radius: 6px;
+    border: 1px solid var(--border2);
+    background: var(--bg2); color: var(--muted2);
+    cursor: pointer; transition: all 0.15s;
+  }
+  .pf-btn:hover { border-color: var(--accent); color: var(--text); }
+  .pf-btn.active { color: #000; border-color: transparent; }
+  .pf-btn[data-proj="NI"].active        { background: #3b82f6; color:#fff; }
+  .pf-btn[data-proj="HS"].active        { background: #f59e0b; color:#000; }
+  .pf-btn[data-proj="HOJ"].active       { background: #22c55e; color:#000; }
+  .pf-btn[data-proj="Not Linked"].active{ background: #6b7a9a; color:#fff; }
+  .pf-count {
+    font-size: 0.68rem; background: rgba(255,255,255,0.1);
+    border-radius: 10px; padding: 1px 6px; margin-left: 4px;
+  }
+
   /* ── LOADING OVERLAY ── */
   #loading {
     display: none; position: fixed; inset: 0;
@@ -428,6 +457,15 @@
     <!-- KPI CARDS -->
     <div class="kpi-grid" id="kpi-grid"></div>
 
+    <!-- PROJECT FILTER BUTTONS -->
+    <div class="project-filter" id="project-filter">
+      <span class="pf-label">Filter by Project:</span>
+      <button class="pf-btn active" data-proj="NI"        onclick="toggleProject('NI',this)">NI <span class="pf-count" id="pc-NI"></span></button>
+      <button class="pf-btn active" data-proj="HS"        onclick="toggleProject('HS',this)">HS <span class="pf-count" id="pc-HS"></span></button>
+      <button class="pf-btn active" data-proj="HOJ"       onclick="toggleProject('HOJ',this)">HOJ <span class="pf-count" id="pc-HOJ"></span></button>
+      <button class="pf-btn active" data-proj="Not Linked" onclick="toggleProject('Not Linked',this)">Not Linked <span class="pf-count" id="pc-Not Linked"></span></button>
+    </div>
+
     <!-- TABS -->
     <div class="tab-bar">
       <button class="tab-btn active" onclick="switchTab('charts',this)">📊 Charts</button>
@@ -465,8 +503,9 @@
           <table id="cage-table">
             <thead>
               <tr>
-                <th onclick="sortTable('cage',0)">Cage Reference<span class="sort-arrow"></span></th>
-                <th onclick="sortTable('cage',1)">Total Bars<span class="sort-arrow"></span></th>
+                <th onclick="sortTable('cage',0)">Project<span class="sort-arrow"></span></th>
+                <th onclick="sortTable('cage',1)">Cage Reference<span class="sort-arrow"></span></th>
+                <th onclick="sortTable('cage',13)">Total Bars<span class="sort-arrow"></span></th>
                 <th onclick="sortTable('cage',2)">Mesh<span class="sort-arrow"></span></th>
                 <th onclick="sortTable('cage',3)">Non-Mesh<span class="sort-arrow"></span></th>
                 <th onclick="sortTable('cage',4)">Shear Links<span class="sort-arrow"></span></th>
@@ -476,6 +515,8 @@
                 <th onclick="sortTable('cage',8)">HS Bars<span class="sort-arrow"></span></th>
                 <th onclick="sortTable('cage',9)">Preload<span class="sort-arrow"></span></th>
                 <th onclick="sortTable('cage',10)">LSAP Bars<span class="sort-arrow"></span></th>
+                <th onclick="sortTable('cage',11)">Sub-Assemblies<span class="sort-arrow"></span></th>
+                <th onclick="sortTable('cage',12)">Multi Sub-Assembly<span class="sort-arrow"></span></th>
               </tr>
             </thead>
             <tbody id="cage-tbody"></tbody>
@@ -520,6 +561,7 @@
 <script>
 // ── STATE ─────────────────────────────────────────────────────────────────────
 let allData = [];         // full parsed rows (objects)
+let activeProjects = new Set(['NI','HS','HOJ','Not Linked']); // all active by default
 let cageSummary = [];     // computed cage summary
 let filteredCage = [];
 let filteredRaw  = [];
@@ -532,6 +574,17 @@ let charts = {};
 
 // ── COLOUR PALETTE ────────────────────────────────────────────────────────────
 const COLORS = ['#f59e0b','#3b82f6','#22c55e','#ef4444','#a855f7','#06b6d4','#f97316','#ec4899'];
+
+// ── PROJECT CLASSIFICATION ───────────────────────────────────────────────────
+function getProject(ref) {
+  if (!ref) return 'Not Linked';
+  const s = String(ref);
+  const sl = s.toLowerCase();
+  if (sl.includes('not linked') || sl.includes('not available') || sl.includes('cage not')) return 'Not Linked';
+  if (s.includes('HOJ')) return 'HOJ';
+  if (s.includes('HP'))  return 'HS';
+  return 'NI';
+}
 
 // ── BAR TYPE ──────────────────────────────────────────────────────────────────
 function barType(layer) {
@@ -606,6 +659,9 @@ function processData(data, fname) {
         allData.forEach(r => r['Bar Type'] = barType(r['Layer']));
       }
 
+      // Add Project column
+      allData.forEach(r => r['_project'] = getProject(r['Correct reference'] || r['correct reference'] || ''));
+
       rawCols = Object.keys(allData[0] || {});
 
       // Build cage summary
@@ -622,6 +678,7 @@ function processData(data, fname) {
         `${allData.length.toLocaleString()} rows · ${rawCols.length} columns`;
 
       // Render
+      updateProjectCounts();
       renderKPIs();
       renderCharts();
       renderRawFilters();
@@ -643,53 +700,65 @@ function processData(data, fname) {
 function buildCageSummary() {
   const map = {};
   allData.forEach(r => {
-    const ref = r['Correct reference'] || r['correct reference'] || r['Cage Ref'] || 'Unknown';
-    const bt  = r['Bar Type'] || 'Other';
-    if (!map[ref]) map[ref] = { ref, total:0, mesh:0, shear:0, loose:0, vs:0, hs:0, preload:0 };
+    const ref   = r['Correct reference'] || r['correct reference'] || r['Cage Ref'] || 'Unknown';
+    const bt    = r['Bar Type'] || 'Other';
+    const layer = String(r['Layer'] || '');
+    if (!map[ref]) map[ref] = { ref, total:0, mesh:0, shear:0, loose:0, vs:0, hs:0, preload:0, vsLayers:new Set(), hsLayers:new Set() };
     map[ref].total++;
     if (bt==='Mesh')             map[ref].mesh++;
     if (bt==='Shear Link')       map[ref].shear++;
     if (bt==='Loose Bar')        map[ref].loose++;
-    if (bt==='VS Sub-Assembly')  map[ref].vs++;
-    if (bt==='HS Sub-Assembly')  map[ref].hs++;
+    if (bt==='VS Sub-Assembly'){ map[ref].vs++;  map[ref].vsLayers.add(layer); }
+    if (bt==='HS Sub-Assembly'){ map[ref].hs++;  map[ref].hsLayers.add(layer); }
     if (bt==='Preload')          map[ref].preload++;
   });
-  cageSummary = Object.values(map).map(c => ({
-    'Cage Reference': c.ref,
-    'Total Bars':     c.total,
-    'Mesh':           c.mesh,
-    'Non-Mesh':       c.total - c.mesh,
-    'Shear Links':    c.shear,
-    'Mesh+Shear Only':(c.total - c.mesh - c.shear === 0) ? 'Yes' : 'No',
-    'Loose Bars':     c.loose,
-    'VS Bars':        c.vs,
-    'HS Bars':        c.hs,
-    'Preload':        c.preload,
-    'LSAP Bars':      c.loose + c.vs + c.hs + c.preload,
-  }));
+  cageSummary = Object.values(map).map(c => {
+    const nonMeshNonShear = c.total - c.mesh - c.shear;
+    const totalSubAssemblies = c.vsLayers.size + c.hsLayers.size;
+    return {
+      'Cage Reference':      c.ref,
+      'Total Bars':          c.total,
+      'Mesh':                c.mesh,
+      'Non-Mesh':            c.total - c.mesh,
+      'Shear Links':         c.shear,
+      'Mesh+Shear Only':     nonMeshNonShear === 0 ? 'Yes' : 'No',
+      'Loose Bars':          c.loose,
+      'VS Bars':             c.vs,
+      'HS Bars':             c.hs,
+      'Preload':             c.preload,
+      'LSAP Bars':           c.loose + c.vs + c.hs + c.preload,
+      'Total Sub-Assemblies':totalSubAssemblies,
+      'Multi Sub-Assembly':  totalSubAssemblies > 1 ? 'Yes' : 'No',
+    };
+  });
 }
 
 // ── KPIs ──────────────────────────────────────────────────────────────────────
-function renderKPIs() {
-  const n = allData.length;
+function renderKPIs(data) {
+  data = data || allData.filter(r => activeProjects.has(r['_project']));
+  const n = data.length;
   const cages   = cageSummary.length;
-  const btCnt   = bt => allData.filter(r=>r['Bar Type']===bt).length;
+  const btCnt   = bt => data.filter(r=>r['Bar Type']===bt).length;
   const mesh    = btCnt('Mesh');
   const nonmesh = n - mesh;
   const shear   = btCnt('Shear Link');
   const lsap    = btCnt('Loose Bar')+btCnt('VS Sub-Assembly')+btCnt('HS Sub-Assembly')+btCnt('Preload');
-  const wt      = allData.reduce((s,r)=>s+(+r['Total Bar Weight']||0),0);
+  const wt      = data.reduce((s,r)=>s+(+r['Total Bar Weight']||0),0);
   const avgNM   = cages ? (nonmesh/cages).toFixed(1) : 0;
+  const meshShearOnly    = cageSummary.filter(c=>c['Mesh+Shear Only']==='Yes').length;
+  const multiSubAssembly = cageSummary.filter(c=>c['Multi Sub-Assembly']==='Yes').length;
 
   const kpis = [
-    {label:'Total Cages',   val: cages.toLocaleString(),    sub:'Unique references', cls:'amber'},
-    {label:'Total Bars',    val: n.toLocaleString(),         sub:'All bar types',     cls:'blue'},
-    {label:'Non-Mesh Bars', val: nonmesh.toLocaleString(),   sub:'Excl. mesh panels', cls:'green'},
-    {label:'Total Mesh',    val: mesh.toLocaleString(),      sub:'F & N layer bars',  cls:'red'},
-    {label:'Shear Links',   val: shear.toLocaleString(),     sub:'LK & S layer',      cls:'purple'},
-    {label:'LSAP Bars',     val: lsap.toLocaleString(),      sub:'LB+VS+HS+PRL',      cls:'cyan'},
-    {label:'Avg Non-Mesh',  val: (+avgNM).toLocaleString(),  sub:'Per cage',          cls:'amber'},
-    {label:'Total Weight',  val: wt.toLocaleString('en',{maximumFractionDigits:0}), sub:'Sum bar weights', cls:'blue'},
+    {label:'Total Cages',         val: cages.toLocaleString(),              sub:'Unique references',          cls:'amber'},
+    {label:'Total Bars',          val: n.toLocaleString(),                   sub:'All bar types',              cls:'blue'},
+    {label:'Non-Mesh Bars',       val: nonmesh.toLocaleString(),             sub:'Excl. mesh panels',          cls:'green'},
+    {label:'Total Mesh',          val: mesh.toLocaleString(),                sub:'F & N layer bars',           cls:'red'},
+    {label:'Shear Links',         val: shear.toLocaleString(),               sub:'LK & S layer',              cls:'purple'},
+    {label:'LSAP Bars',           val: lsap.toLocaleString(),                sub:'LB+VS+HS+PRL',              cls:'cyan'},
+    {label:'Mesh & Shear Only',   val: meshShearOnly.toLocaleString(),       sub:'Cages with no other bars',   cls:'green'},
+    {label:'Multi Sub-Assembly',  val: multiSubAssembly.toLocaleString(),    sub:'Cages with >1 sub-assembly', cls:'amber'},
+    {label:'Avg Non-Mesh / Cage', val: (+avgNM).toLocaleString(),            sub:'Per cage',                  cls:'blue'},
+    {label:'Total Weight',        val: wt.toLocaleString('en',{maximumFractionDigits:0}), sub:'Sum bar weights', cls:'red'},
   ];
 
   document.getElementById('kpi-grid').innerHTML = kpis.map(k=>
@@ -702,11 +771,12 @@ function renderKPIs() {
 }
 
 // ── CHARTS ────────────────────────────────────────────────────────────────────
-function renderCharts() {
+function renderCharts(data) {
+  data = data || allData.filter(r => activeProjects.has(r['_project']));
   const btOrder = ['Mesh','Shear Link','Loose Bar','VS Sub-Assembly','HS Sub-Assembly','Preload','Other'];
-  const counts  = btOrder.map(bt => allData.filter(r=>r['Bar Type']===bt).length);
+  const counts  = btOrder.map(bt => data.filter(r=>r['Bar Type']===bt).length);
   const weights = btOrder.map(bt =>
-    allData.filter(r=>r['Bar Type']===bt).reduce((s,r)=>s+(+r['Total Bar Weight']||0),0)
+    data.filter(r=>r['Bar Type']===bt).reduce((s,r)=>s+(+r['Total Bar Weight']||0),0)
   );
 
   // Destroy old
@@ -763,6 +833,51 @@ function renderRawFilters() {
     rawCols.map((c,i)=>`<th onclick="sortTable('raw',${i})">${c}<span class="sort-arrow"></span></th>`).join('');
 }
 
+// ── PROJECT FILTER ───────────────────────────────────────────────────────────
+function toggleProject(proj, btn) {
+  if (activeProjects.has(proj)) {
+    // Don't allow deselecting all
+    if (activeProjects.size === 1) return;
+    activeProjects.delete(proj);
+    btn.classList.remove('active');
+  } else {
+    activeProjects.add(proj);
+    btn.classList.add('active');
+  }
+  applyProjectFilter();
+}
+
+function applyProjectFilter() {
+  // Re-derive filtered data based on active projects
+  const base = allData.filter(r => activeProjects.has(r['_project']));
+  // Re-build cage summary from filtered base
+  const savedAll = allData;
+  allData = base;
+  buildCageSummary();
+  allData = savedAll;
+
+  filteredCage = [...cageSummary];
+  filteredRaw  = base.filter(r => {
+    const bt = document.getElementById('raw-bartype').value;
+    const q  = document.getElementById('raw-search').value.toLowerCase();
+    if (bt && r['Bar Type'] !== bt) return false;
+    if (q) return Object.values(r).some(v => String(v).toLowerCase().includes(q));
+    return true;
+  });
+  cagePage = rawPage = 1;
+  renderKPIs(base);
+  renderCharts(base);
+  renderCageTable();
+  renderRawTable();
+}
+
+function updateProjectCounts() {
+  ['NI','HS','HOJ','Not Linked'].forEach(p => {
+    const el = document.getElementById('pc-' + p);
+    if (el) el.textContent = allData.filter(r => r['_project'] === p).length.toLocaleString();
+  });
+}
+
 // ── FILTER FUNCTIONS ──────────────────────────────────────────────────────────
 function filterCage() {
   const q = document.getElementById('cage-search').value.toLowerCase();
@@ -787,7 +902,8 @@ function filterRaw() {
 
 // ── RENDER CAGE TABLE ─────────────────────────────────────────────────────────
 function renderCageTable() {
-  const cols = ['Cage Reference','Total Bars','Mesh','Non-Mesh','Shear Links','Mesh+Shear Only','Loose Bars','VS Bars','HS Bars','Preload','LSAP Bars'];
+  const cols = ['Project','Cage Reference','Total Bars','Mesh','Non-Mesh','Shear Links','Mesh+Shear Only','Loose Bars','VS Bars','HS Bars','Preload','LSAP Bars','Multi Sub-Assembly'];
+  const flagCols = new Set(['Mesh+Shear Only','Multi Sub-Assembly']);
   const total = filteredCage.length;
   const pages = Math.ceil(total/PAGE) || 1;
   const slice = filteredCage.slice((cagePage-1)*PAGE, cagePage*PAGE);
@@ -796,7 +912,14 @@ function renderCageTable() {
     `${total.toLocaleString()} cages`;
 
   document.getElementById('cage-tbody').innerHTML = slice.map(r =>
-    `<tr>${cols.map(c=>`<td>${r[c]??''}</td>`).join('')}</tr>`
+    `<tr>${cols.map(c => {
+      const v = r[c] ?? '';
+      if (flagCols.has(c)) {
+        const cls = v==='Yes' ? 'badge-mesh' : 'badge-other';
+        return `<td><span class="badge ${cls}">${v}</span></td>`;
+      }
+      return `<td>${v}</td>`;
+    }).join('')}</tr>`
   ).join('');
 
   renderPagination('cage', cagePage, pages, p=>{cagePage=p; renderCageTable();});
@@ -847,7 +970,7 @@ function renderPagination(id, current, total, cb) {
 function sortTable(tbl, col) {
   if (tbl === 'cage') {
     if (cageSortCol === col) cageSortDir *= -1; else { cageSortCol=col; cageSortDir=1; }
-    const key = ['Cage Reference','Total Bars','Mesh','Non-Mesh','Shear Links','Mesh+Shear Only','Loose Bars','VS Bars','HS Bars','Preload','LSAP Bars'][col];
+    const key = ['Project','Cage Reference','Total Bars','Mesh','Non-Mesh','Shear Links','Mesh+Shear Only','Loose Bars','VS Bars','HS Bars','Preload','LSAP Bars','Multi Sub-Assembly'][col];
     filteredCage.sort((a,b) => {
       const av = isNaN(a[key]) ? String(a[key]) : +a[key];
       const bv = isNaN(b[key]) ? String(b[key]) : +b[key];
